@@ -1,4 +1,4 @@
-# Báo cáo Day 09 — Nguyễn Hữu Đăng, K5-L2B
+# Báo cáo Day 09 — Nguyễn Hữu Đăng, 2A202603300
 
 ## 1. Kết luận trước
 Pipeline kết luận **HOLD** (mã thoát `10`). Trong **224** ảnh đầu vào (`data/raw`), bước cửa vào loại **22** ảnh (hỏng, quá nhỏ, trùng, rò rỉ), còn **202** ảnh đi qua QC và được xuất bản nháp vào `submission/export/clean_v1`. Lý do chưa thể Release: tuy không còn lỗi bắt buộc (`n_errors = 0`), tỉ lệ ảnh còn cảnh báo chưa được người duyệt là **38/202 (18.81%) >= ngưỡng 10.00%** do hàng đợi 125 ảnh vượt quá ngân sách duyệt 80 ảnh.
