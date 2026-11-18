@@ -46,7 +46,20 @@ Số liệu lấy từ `submission/reports/02_error_list_v1.csv` (trên 224 ản
   2. *Ảnh trùng biến đổi mạnh hoặc cắt xén lớn:* với `phash_dist=10`, các ảnh trùng bị cắt mạnh hoặc xoay/đổi bố cục có khoảng cách Hamming > 10 vẫn lọt qua bước `duplicates` (trên `calib` recall chỉ đạt 0.67).
 
 ## 5. Train: raw vs clean (tùy chọn, chấm riêng)
-Chưa chạy (tập trung hoàn thiện toàn bộ phần lõi QC pipeline, calibration và báo cáo trước; thí nghiệm train so sánh `raw` vs `clean` trên Google Colab sẽ được bổ sung sau).
+Thí nghiệm chạy trên Google Colab GPU (`yolo26n.pt`, `epochs=20`, `batch=16`, `imgsz=640`, 2 seed `0, 1`, cùng tập `gold_val` 40 ảnh và `test` 100 ảnh). Kết quả từ `submission/results/comparison.md`:
+
+| biến thể | #ảnh train | số seed | map50 (TB ± độ lệch) | map50_95 (TB ± độ lệch) | precision (TB ± độ lệch) | recall (TB ± độ lệch) |
+|---|---|---|---|---|---|---|
+| raw | 224 | 2 | 0.726 ± 0.000 | 0.512 ± 0.004 | 0.764 ± 0.061 | 0.649 ± 0.028 |
+| clean | 202 | 2 | 0.701 ± 0.025 | 0.487 ± 0.008 | 0.759 ± 0.003 | 0.625 ± 0.019 |
+
+Chênh mAP50 (clean − raw) = **-0.025**.
+
+- **Kết luận trung thực:** Chênh lệch `mAP50 (clean − raw) = -0.025` nằm ngang bằng đúng độ lệch chuẩn giữa 2 seed của `clean` (`±0.025`, cụ thể `0.7180` và `0.6832`). Với chỉ 2 seed và tập test 100 ảnh, **chưa thể kết luận** sự khác biệt này có ý nghĩa thống kê (nằm trong nhiễu giữa các seed).
+- **2 nguyên nhân có thể & cách kiểm:**
+  1. *Rò rỉ dữ liệu test trong `raw`:* `raw` chứa **5 ảnh `LEAK_TEST`** trùng với kho `test`/`gold_val`, trong khi `clean` đã loại sạch 5 ảnh này; vì vậy `raw` được hưởng lợi không công bằng khi đo trên `test`. *Cách kiểm:* đánh giá lại chỉ trên phần không trùng hoặc train biến thể `raw_no_leak` (chỉ bỏ `LEAK_TEST`) để tách riêng tác động rò rỉ.
+  2. *`clean` vẫn đang ở trạng thái Hold (còn 38/202 ảnh cảnh báo chưa duyệt) & giảm cỡ mẫu:* do ngân sách duyệt chỉ 80 ảnh, `clean` vẫn còn nhãn máy chưa sửa ở phần cuối hàng đợi (đặc biệt `POSSIBLE_MISSING` / `POSSIBLE_LOOSE_BOX` kéo `recall` xuống `0.625` so với `0.649`), kết hợp với số ảnh train giảm còn 202 ảnh và `epochs=20`. *Cách kiểm:* tăng ngân sách duyệt để xử lý nốt 38 ảnh cảnh báo thành **Release**, rồi chạy lại với 3–5 seed.
+- **Việc tiếp theo:** Duyệt hết 38 ảnh còn cảnh báo để đạt **Release**, sau đó train so sánh lại với `>= 3` seed (và `raw_no_leak`) để kết luận chắc chắn hơn.
 
 ## 6. Quyết định và ghi chú AI
 - **(a) Quyết định cuối:** **HOLD**. Để chuyển sang **Release**, cần bổ sung ngân sách duyệt người cho ít nhất 18 trong số 38 ảnh còn cảnh báo chưa duyệt (đưa số ảnh cảnh báo chưa duyệt xuống <= 20/202, tức `< 10.00%`).
