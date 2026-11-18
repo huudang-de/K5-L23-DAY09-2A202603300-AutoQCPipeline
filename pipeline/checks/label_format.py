@@ -25,5 +25,53 @@ from ..common import ERROR, WARN, Issue, iou_xywh, parse_yolo_line  # noqa: F401
 
 
 def run(ds, cfg):
-    # TODO: duyệt từng file nhãn, từng dòng
-    raise NotImplementedError("check label_format chưa làm")
+    lc = cfg["label_format"]
+    tol = lc["overflow_tol"]
+    min_box_px = lc["min_box_px"]
+    max_box_frac = lc["max_box_frac"]
+    dup_iou = lc["dup_box_iou"]
+
+    issues = []
+    for lf in ds.label_files():
+        stem = lf.stem
+        size = ds.image_size(stem)
+        seen_boxes = []
+        for line_no, text in ds.read_label_lines(stem) or []:
+            try:
+                c, cx, cy, w, h = parse_yolo_line(text)
+            except ValueError as e:
+                issues.append(Issue("label_format", ERROR, "BAD_FORMAT", stem, str(e), line=line_no))
+                continue
+            if not (0 <= c < len(ds.classes)):
+                issues.append(Issue("label_format", ERROR, "BAD_CLASS_ID", stem, f"id lớp lạ: {c}", line=line_no))
+                continue
+            if w <= 0 or h <= 0:
+                issues.append(Issue("label_format", ERROR, "BOX_ZERO", stem, f"box rỗng: w={w}, h={h}", line=line_no))
+                continue
+
+            overflow = max(0.0, -(cx - w / 2), -(cy - h / 2), (cx + w / 2) - 1.0, (cy + h / 2) - 1.0)
+            if overflow > tol:
+                issues.append(
+                    Issue(
+                        "label_format",
+                        ERROR,
+                        "BOX_OUT_OF_IMAGE",
+                        stem,
+                        f"box tràn ảnh ({overflow:.4f})",
+                        line=line_no,
+                        extra={"overflow": overflow},
+                    )
+                )
+
+            box = (cx, cy, w, h)
+            if any(sc == c and iou_xywh(sb, box) > dup_iou for sc, sb in seen_boxes):
+                issues.append(Issue("label_format", ERROR, "DUP_BOX", stem, "box trùng lặp", line=line_no))
+            seen_boxes.append((c, box))
+
+            if size is not None:
+                img_w, img_h = size
+                if min(w * img_w, h * img_h) < min_box_px:
+                    issues.append(Issue("label_format", WARN, "BOX_TINY", stem, "box quá nhỏ", line=line_no))
+            if w * h > max_box_frac:
+                issues.append(Issue("label_format", WARN, "BOX_HUGE", stem, "box quá lớn", line=line_no))
+    return issues
