@@ -40,5 +40,107 @@ from ..model_cache import get_preds  # noqa: F401
 
 
 def run(ds, cfg, preds=None):
-    # TODO
-    raise NotImplementedError("check second_opinion chưa làm")
+    if preds is None:
+        preds = get_preds(ds, cfg, "checker")
+
+    sc = cfg["second_opinion"]
+    conf_thresh = sc["conf"]
+    min_area_px = sc["min_area_px"]
+    fp_conf = sc["fp_conf"]
+    iou_missing = sc["iou_missing"]
+    iou_match = sc["iou_match"]
+    iou_loose = sc["iou_loose"]
+
+    issues = []
+    for p in ds.image_files():
+        stem = p.stem
+        if stem not in preds:
+            continue
+        raw_lines = ds.read_label_lines(stem)
+        if raw_lines is None:
+            continue
+        size = ds.image_size(stem)
+        if size is None:
+            continue
+        img_w, img_h = size
+
+        label_items = []
+        for line_no, text in raw_lines:
+            try:
+                b = parse_yolo_line(text)
+            except ValueError:
+                continue
+            if 0 <= b[0] < len(ds.classes):
+                label_items.append((line_no, b[0], b[1:]))
+
+        img_preds = preds[stem]
+        for pr in img_preds:
+            p_cls, p_conf, pcx, pcy, pw, ph = pr
+            if p_conf < conf_thresh:
+                continue
+            if (pw * img_w) * (ph * img_h) < min_area_px:
+                continue
+            p_box = (pcx, pcy, pw, ph)
+            cands = []
+            for _, l_cls, l_box in label_items:
+                iou = iou_xywh(p_box, l_box)
+                if iou >= iou_missing:
+                    cands.append((l_cls, iou))
+
+            if not cands:
+                issues.append(
+                    Issue(
+                        "second_opinion",
+                        WARN,
+                        "POSSIBLE_MISSING",
+                        stem,
+                        f"model thấy lớp {p_cls} (conf={p_conf:.2f}) nhưng không có nhãn",
+                        extra={"conf": p_conf, "pred_cls": p_cls},
+                    )
+                )
+            else:
+                same_ious = [iou for l_cls, iou in cands if l_cls == p_cls]
+                if same_ious:
+                    best_same = max(same_ious)
+                    if best_same < iou_loose:
+                        issues.append(
+                            Issue(
+                                "second_opinion",
+                                WARN,
+                                "POSSIBLE_LOOSE_BOX",
+                                stem,
+                                f"box lớp {p_cls} khớp lỏng (IoU={best_same:.2f})",
+                                extra={"conf": p_conf, "iou": best_same},
+                            )
+                        )
+                else:
+                    best_other = max(iou for _, iou in cands)
+                    if best_other >= iou_match:
+                        issues.append(
+                            Issue(
+                                "second_opinion",
+                                WARN,
+                                "POSSIBLE_WRONG_CLASS",
+                                stem,
+                                f"nghi nhầm lớp: model dự đoán lớp {p_cls} (IoU={best_other:.2f})",
+                                extra={"conf": p_conf, "iou": best_other, "pred_cls": p_cls},
+                            )
+                        )
+
+        fp_preds = [(pr[2], pr[3], pr[4], pr[5]) for pr in img_preds if pr[1] >= fp_conf]
+        for line_no, l_cls, l_box in label_items:
+            max_iou = max((iou_xywh(l_box, p_box) for p_box in fp_preds), default=0.0)
+            if max_iou < iou_missing:
+                issues.append(
+                    Issue(
+                        "second_opinion",
+                        WARN,
+                        "POSSIBLE_FALSE_POS",
+                        stem,
+                        f"box nhãn dòng {line_no} không khớp dự đoán nào",
+                        line=line_no,
+                        extra={"iou": max_iou},
+                    )
+                )
+
+    return issues
