@@ -31,13 +31,14 @@ def decide(issues, image_stems, cfg, reviewed=frozenset()):
         if i.severity == WARN and i.image in stems_set and i.image not in reviewed_set
     }
     n_warn_images = len(warn_images)
-    warn_ratio = round(n_warn_images / n_images, 4) if n_images > 0 else 0.0
+    raw_ratio = (n_warn_images / n_images) if n_images > 0 else 0.0
+    warn_ratio = round(raw_ratio, 4)
     hold_thresh = cfg["gate"]["warn_ratio_hold"]
 
     if n_errors > 0:
         decision = "Rework"
         reasons = [f"còn {n_errors} lỗi bắt buộc (ERROR) chưa xử lý"]
-    elif warn_ratio >= hold_thresh:
+    elif raw_ratio >= hold_thresh:
         decision = "Hold"
         reasons = [
             f"tỉ lệ ảnh còn cảnh báo {n_warn_images}/{n_images} ({warn_ratio:.2%}) >= ngưỡng {hold_thresh:.2%}"

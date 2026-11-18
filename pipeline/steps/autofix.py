@@ -136,7 +136,7 @@ def fix(ds, issues, cfg):
                 x2 = min(1.0, cx + w / 2)
                 y2 = min(1.0, cy + h / 2)
                 nw, nh = x2 - x1, y2 - y1
-                if nw <= 0 or nh <= 0:
+                if round(nw, 6) <= 0 or round(nh, 6) <= 0:
                     fixes.append(
                         {
                             "image": stem,
